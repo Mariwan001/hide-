@@ -1,8 +1,8 @@
 #!/bin/bash
 
 # HIDE - Invisible File/Folder Management System
-# Version: 1.0.1 (FIXED)
-# A system for creating and managing completely invisible files and folders
+# Version: 2.0.0 (ULTIMATE EDITION)
+# Features: matrix search, stats, duplicate detection, trap logging
 
 set -e
 
@@ -13,14 +13,16 @@ YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 MAGENTA='\033[0;35m'
 CYAN='\033[0;36m'
-NC='\033[0m' # No Color
+PURPLE='\033[0;35m'
+NC='\033[0m'
 
-# Base directory for hidden storage (completely hidden location)
+# Base directory for hidden storage
 HIDE_BASE="$HOME/.local/.cache/.system"
 HIDE_STORAGE="$HIDE_BASE/.storage"
 HIDE_REGISTRY="$HIDE_BASE/.registry.enc"
 HIDE_TEMP="$HIDE_BASE/.temp"
 HIDE_NOTEPAD_DIR="$HIDE_BASE/.notepad"
+HIDE_TRAP_LOG="$HIDE_BASE/.trap_log"
 
 # Initialize the hide system
 init_hide_system() {
@@ -43,6 +45,10 @@ init_hide_system() {
     
     if [ ! -f "$HIDE_REGISTRY" ]; then
         echo "[]" | base64 > "$HIDE_REGISTRY"
+    fi
+    
+    if [ ! -f "$HIDE_TRAP_LOG" ]; then
+        echo "[]" | base64 > "$HIDE_TRAP_LOG"
     fi
 }
 
@@ -82,11 +88,12 @@ add_to_registry() {
     local hidden_path="$4"
     local locked="${5:-false}"
     local password="${6:-}"
+    local trapped="${7:-false}"
     
     local registry=$(read_registry)
     local id=$(generate_id)
     
-    local entry="{\"id\":\"$id\",\"name\":\"$name\",\"type\":\"$type\",\"editor\":\"$editor\",\"path\":\"$hidden_path\",\"locked\":$locked,\"password\":\"$password\",\"created\":\"$(date)\"}"
+    local entry="{\"id\":\"$id\",\"name\":\"$name\",\"type\":\"$type\",\"editor\":\"$editor\",\"path\":\"$hidden_path\",\"locked\":$locked,\"password\":\"$password\",\"trapped\":$trapped,\"created\":\"$(date)\"}"
     
     if [ "$registry" = "[]" ]; then
         registry="[$entry]"
@@ -179,6 +186,48 @@ except:
     write_registry "$new_registry"
 }
 
+# Set trap on entry
+set_trap_registry() {
+    local name="$1"
+    local registry=$(read_registry)
+    
+    local new_registry=$(echo "$registry" | python3 -c "
+import sys, json
+try:
+    data = json.load(sys.stdin)
+    for item in data:
+        if item['name'] == '$name':
+            item['trapped'] = True
+    print(json.dumps(data))
+except:
+    print('[]')
+")
+    
+    write_registry "$new_registry"
+}
+
+# Log trap access
+log_trap_access() {
+    local name="$1"
+    local timestamp="$(date '+%Y-%m-%d %H:%M:%S')"
+    local user="$USER"
+    local terminal="$(tty)"
+    
+    local trap_log=$(cat "$HIDE_TRAP_LOG" 2>/dev/null | base64 -d || echo "[]")
+    local log_entry="{\"name\":\"$name\",\"timestamp\":\"$timestamp\",\"user\":\"$user\",\"terminal\":\"$terminal\"}"
+    
+    if [ "$trap_log" = "[]" ]; then
+        trap_log="[$log_entry]"
+    else
+        trap_log="${trap_log%]},${log_entry}]"
+    fi
+    
+    echo "$trap_log" | base64 > "$HIDE_TRAP_LOG"
+    
+    # Send alert
+    echo -e "${RED}⚠️  TRAP ALERT: '$name' accessed by $user at $timestamp${NC}" >&2
+}
+
 # Check password
 check_password() {
     local name="$1"
@@ -193,6 +242,28 @@ check_password() {
     local input_hash=$(echo -n "$password" | sha256sum | awk '{print $1}')
     
     [ "$stored_hash" = "$input_hash" ]
+}
+
+# Get file size
+get_size() {
+    local path="$1"
+    if [ -f "$path" ]; then
+        du -sh "$path" 2>/dev/null | awk '{print $1}'
+    elif [ -d "$path" ]; then
+        du -sh "$path" 2>/dev/null | awk '{print $1}'
+    else
+        echo "0B"
+    fi
+}
+
+# Get file hash
+get_hash() {
+    local path="$1"
+    if [ -f "$path" ]; then
+        sha256sum "$path" 2>/dev/null | awk '{print $1}'
+    else
+        echo ""
+    fi
 }
 
 # Create hidden item
@@ -226,13 +297,11 @@ create_hidden_item() {
         exit 1
     fi
     
-    # Check if already exists
     if [ -n "$(get_from_registry "$name")" ]; then
         echo -e "${RED}Item '$name' already exists${NC}"
         exit 1
     fi
     
-    # Generate hidden path
     local hidden_id=$(generate_id)
     local hidden_path="$HIDE_STORAGE/$hidden_id"
     
@@ -242,8 +311,7 @@ create_hidden_item() {
         mkdir -p "$hidden_path"
     fi
     
-    # Add to registry
-    add_to_registry "$name" "$type" "$editor" "$hidden_path" "false" ""
+    add_to_registry "$name" "$type" "$editor" "$hidden_path" "false" "" "false"
     
     echo -e "${GREEN}✓ Hidden $type '$name' created successfully${NC}"
     echo -e "${YELLOW}Use 'hide open $name' to access it${NC}"
@@ -273,7 +341,8 @@ try:
     for item in data:
         if filter_type == 'all' or item['type'] == filter_type:
             locked = '🔒' if item.get('locked', False) else '🔓'
-            print(f\"  {locked} {item['name']}\")
+            trapped = '⚠️ ' if item.get('trapped', False) else ''
+            print(f\"  {locked} {trapped}{item['name']}\")
             print(f\"     Type: {item['type']}\")
             print(f\"     Editor: {item['editor']}\")
             print(f\"     Created: {item['created']}\")
@@ -281,6 +350,230 @@ try:
 except Exception as e:
     print(f'Error: {e}')
 "
+}
+
+# Matrix search - search by keyword in names and content
+matrix_search() {
+    local keyword="$1"
+    
+    if [ -z "$keyword" ]; then
+        echo -e "${RED}Usage: hide matrix <keyword>${NC}"
+        exit 1
+    fi
+    
+    local registry=$(read_registry)
+    
+    if [ "$registry" = "[]" ]; then
+        echo -e "${YELLOW}No hidden items found${NC}"
+        return
+    fi
+    
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║        MATRIX SEARCH: '$keyword'                            ${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    local found=0
+    
+    echo "$registry" | python3 -c "
+import sys, json, os, re
+
+keyword = '$keyword'.lower()
+data = json.load(sys.stdin)
+
+print('\033[1;33mSearching in names and content...\033[0m\n')
+
+for item in data:
+    name = item['name']
+    path = item['path']
+    item_type = item['type']
+    matched = False
+    match_reason = []
+    
+    # Check name
+    if keyword in name.lower():
+        matched = True
+        match_reason.append('name')
+    
+    # Check content for files
+    if item_type == 'file' and os.path.exists(path):
+        try:
+            with open(path, 'r', errors='ignore') as f:
+                content = f.read().lower()
+                if keyword in content:
+                    matched = True
+                    match_reason.append('content')
+                    
+                    # Find context
+                    lines = content.split('\n')
+                    for i, line in enumerate(lines):
+                        if keyword in line:
+                            match_reason.append(f'line {i+1}')
+                            break
+        except:
+            pass
+    
+    if matched:
+        # Color coding
+        if item_type == 'file':
+            color = '\033[0;35m'  # Purple
+            icon = '📄'
+        else:
+            color = '\033[0;31m'  # Red
+            icon = '📁'
+        
+        print(f\"{color}{icon} {name}\033[0m\")
+        print(f\"   Type: {item_type}\")
+        print(f\"   Match: {', '.join(match_reason)}\")
+        print()
+" && found=1
+    
+    if [ $found -eq 0 ]; then
+        echo -e "${YELLOW}No matches found for '$keyword'${NC}"
+    fi
+}
+
+# Show statistics
+show_stats() {
+    local registry=$(read_registry)
+    
+    if [ "$registry" = "[]" ]; then
+        echo -e "${YELLOW}No hidden items found${NC}"
+        return
+    fi
+    
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║                  HIDDEN STORAGE STATS                      ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo "$registry" | python3 -c "
+import sys, json, os, subprocess
+
+data = json.load(sys.stdin)
+
+total_files = sum(1 for item in data if item['type'] == 'file')
+total_folders = sum(1 for item in data if item['type'] == 'folder')
+locked_items = sum(1 for item in data if item.get('locked', False))
+trapped_items = sum(1 for item in data if item.get('trapped', False))
+
+print(f'\033[1;36mOVERVIEW:\033[0m')
+print(f'  Total Items: {len(data)}')
+print(f'  Files: {total_files}')
+print(f'  Folders: {total_folders}')
+print(f'  Locked: {locked_items}')
+print(f'  Trapped: {trapped_items}')
+print()
+
+print(f'\033[1;36mITEM DETAILS:\033[0m')
+for item in data:
+    name = item['name']
+    path = item['path']
+    item_type = item['type']
+    
+    # Get size
+    try:
+        if os.path.exists(path):
+            result = subprocess.run(['du', '-sh', path], capture_output=True, text=True)
+            size = result.stdout.split()[0] if result.stdout else '0B'
+        else:
+            size = 'N/A'
+    except:
+        size = 'N/A'
+    
+    # Color code
+    if item_type == 'file':
+        color = '\033[0;35m'  # Purple
+        icon = '📄'
+    else:
+        color = '\033[0;31m'  # Red
+        icon = '📁'
+    
+    locked = '🔒' if item.get('locked', False) else ''
+    trapped = '⚠️ ' if item.get('trapped', False) else ''
+    
+    print(f'{color}{icon} {name}{locked}{trapped}\033[0m')
+    print(f'   Size: {size}')
+    print(f'   Created: {item[\"created\"]}')
+    print()
+"
+}
+
+# Find duplicate files
+find_duplicates() {
+    local registry=$(read_registry)
+    
+    if [ "$registry" = "[]" ]; then
+        echo -e "${YELLOW}No hidden items found${NC}"
+        return
+    fi
+    
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║              DUPLICATE FILE DETECTION                      ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    
+    echo "$registry" | python3 -c "
+import sys, json, os, hashlib
+from collections import defaultdict
+
+data = json.load(sys.stdin)
+files = [item for item in data if item['type'] == 'file']
+
+if not files:
+    print('\033[1;33mNo files to check\033[0m')
+    sys.exit(0)
+
+print('\033[1;33mCalculating file hashes...\033[0m\n')
+
+hash_map = defaultdict(list)
+
+for item in files:
+    path = item['path']
+    name = item['name']
+    
+    if os.path.exists(path) and os.path.isfile(path):
+        try:
+            with open(path, 'rb') as f:
+                file_hash = hashlib.sha256(f.read()).hexdigest()
+                hash_map[file_hash].append(name)
+        except:
+            pass
+
+duplicates = {h: names for h, names in hash_map.items() if len(names) > 1}
+
+if duplicates:
+    print(f'\033[1;31mFound {len(duplicates)} duplicate groups:\033[0m\n')
+    for file_hash, names in duplicates.items():
+        print(f'\033[0;35m📄 Duplicate Group (hash: {file_hash[:16]}...):\033[0m')
+        for name in names:
+            print(f'   - {name}')
+        print()
+else:
+    print('\033[1;32m✓ No duplicates found\033[0m')
+"
+}
+
+# Set trap on item
+set_trap() {
+    local name="$1"
+    
+    if [ -z "$name" ]; then
+        echo -e "${RED}Usage: hide trap <name>${NC}"
+        exit 1
+    fi
+    
+    local entry=$(get_from_registry "$name")
+    
+    if [ -z "$entry" ]; then
+        echo -e "${RED}Item '$name' not found${NC}"
+        exit 1
+    fi
+    
+    set_trap_registry "$name"
+    
+    echo -e "${GREEN}✓ Trap set on '$name'${NC}"
+    echo -e "${YELLOW}Access attempts will be logged and alerted${NC}"
 }
 
 # Show hidden item location
@@ -293,7 +586,12 @@ show_hidden_item() {
         exit 1
     fi
     
-    # Check if locked
+    # Check if trapped
+    local is_trapped=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('trapped', False))")
+    if [ "$is_trapped" = "True" ]; then
+        log_trap_access "$name"
+    fi
+    
     local is_locked=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('locked', False))")
     
     if [ "$is_locked" = "True" ]; then
@@ -316,7 +614,12 @@ read_hidden_file() {
         exit 1
     fi
     
-    # Check if locked
+    # Check if trapped
+    local is_trapped=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('trapped', False))")
+    if [ "$is_trapped" = "True" ]; then
+        log_trap_access "$name"
+    fi
+    
     local is_locked=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('locked', False))")
     
     if [ "$is_locked" = "True" ]; then
@@ -355,7 +658,12 @@ open_hidden_item() {
         exit 1
     fi
     
-    # Check if locked
+    # Check if trapped
+    local is_trapped=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('trapped', False))")
+    if [ "$is_trapped" = "True" ]; then
+        log_trap_access "$name"
+    fi
+    
     local is_locked=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('locked', False))")
     
     if [ "$is_locked" = "True" ]; then
@@ -371,7 +679,6 @@ open_hidden_item() {
         if [ "$editor" = "nano" ]; then
             nano "$path"
         else
-            # Open in hidden notepad
             hide-notepad "$path"
         fi
     else
@@ -467,6 +774,12 @@ enter_with_key() {
         exit 1
     fi
     
+    # Check if trapped
+    local is_trapped=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('trapped', False))")
+    if [ "$is_trapped" = "True" ]; then
+        log_trap_access "$name"
+    fi
+    
     local is_locked=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('locked', False))")
     
     if [ "$is_locked" != "True" ]; then
@@ -481,12 +794,10 @@ enter_with_key() {
     if check_password "$name" "$password"; then
         echo -e "${GREEN}✓ Password correct${NC}"
         
-        # Get item details and open directly without lock check
         local path=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['path'])")
         local type=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['type'])")
         local editor=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['editor'])")
         
-        # Open directly bypassing lock check
         if [ "$type" = "file" ]; then
             if [ "$editor" = "nano" ]; then
                 nano "$path"
@@ -499,6 +810,12 @@ enter_with_key() {
         fi
     else
         echo -e "${RED}✗ Incorrect password${NC}"
+        
+        # Log failed attempt if trapped
+        if [ "$is_trapped" = "True" ]; then
+            log_trap_access "$name (FAILED PASSWORD)"
+        fi
+        
         exit 1
     fi
 }
@@ -530,6 +847,12 @@ show_help() {
     echo -e "  ${YELLOW}hide read <n>${NC}                 Read hidden file content"
     echo -e "  ${YELLOW}hide open <n>${NC}                 Open hidden item"
     echo -e "  ${YELLOW}hide notepad <n>${NC}              Open hidden notepad"
+    echo ""
+    echo -e "${GREEN}ADVANCED:${NC}"
+    echo -e "  ${YELLOW}hide matrix <keyword>${NC}        Search by name/content (files=purple, folders=red)"
+    echo -e "  ${YELLOW}hide stats${NC}                    Show storage stats for each item"
+    echo -e "  ${YELLOW}hide duplicate-check${NC}          Find duplicate files"
+    echo -e "  ${YELLOW}hide trap <n>${NC}                 Log access attempts with alerts"
     echo ""
     echo -e "${GREEN}MANAGE:${NC}"
     echo -e "  ${YELLOW}hide delete <n>${NC}               Delete hidden file"
@@ -575,6 +898,18 @@ main() {
             ;;
         open)
             open_hidden_item "$2"
+            ;;
+        matrix)
+            matrix_search "$2"
+            ;;
+        stats)
+            show_stats
+            ;;
+        duplicate-check)
+            find_duplicates
+            ;;
+        trap)
+            set_trap "$2"
             ;;
         delete)
             if [ "$2" = "-f" ]; then
