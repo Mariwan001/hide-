@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # HIDE - Invisible File/Folder Management System
-# Version: 1.0.0
+# Version: 1.0.1 (FIXED)
 # A system for creating and managing completely invisible files and folders
 
 set -e
@@ -306,6 +306,45 @@ show_hidden_item() {
     echo -e "${GREEN}Hidden location: ${BLUE}$path${NC}"
 }
 
+# Read hidden file content
+read_hidden_file() {
+    local name="$1"
+    local entry=$(get_from_registry "$name")
+    
+    if [ -z "$entry" ]; then
+        echo -e "${RED}Item '$name' not found${NC}"
+        exit 1
+    fi
+    
+    # Check if locked
+    local is_locked=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin).get('locked', False))")
+    
+    if [ "$is_locked" = "True" ]; then
+        echo -e "${RED}Item '$name' is locked. Use 'hide enterKey $name' to unlock${NC}"
+        exit 1
+    fi
+    
+    local path=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['path'])")
+    local type=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['type'])")
+    
+    if [ "$type" != "file" ]; then
+        echo -e "${RED}Cannot read folder. Use 'hide open $name' instead${NC}"
+        exit 1
+    fi
+    
+    if [ ! -f "$path" ]; then
+        echo -e "${RED}File not found at: $path${NC}"
+        exit 1
+    fi
+    
+    echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${CYAN}║  Content of: ${YELLOW}$name${CYAN}                                      ║${NC}"
+    echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    cat "$path"
+    echo ""
+}
+
 # Open hidden item
 open_hidden_item() {
     local name="$1"
@@ -418,7 +457,7 @@ lock_item() {
     echo -e "${GREEN}✓ Item '$name' locked${NC}"
 }
 
-# Enter with key
+# Enter with key (FIXED VERSION)
 enter_with_key() {
     local name="$1"
     local entry=$(get_from_registry "$name")
@@ -441,7 +480,23 @@ enter_with_key() {
     
     if check_password "$name" "$password"; then
         echo -e "${GREEN}✓ Password correct${NC}"
-        open_hidden_item "$name"
+        
+        # Get item details and open directly without lock check
+        local path=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['path'])")
+        local type=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['type'])")
+        local editor=$(echo "$entry" | python3 -c "import sys, json; print(json.load(sys.stdin)['editor'])")
+        
+        # Open directly bypassing lock check
+        if [ "$type" = "file" ]; then
+            if [ "$editor" = "nano" ]; then
+                nano "$path"
+            else
+                hide-notepad "$path"
+            fi
+        else
+            cd "$path" && bash
+            echo -e "${GREEN}Exited from hidden folder${NC}"
+        fi
     else
         echo -e "${RED}✗ Incorrect password${NC}"
         exit 1
@@ -471,18 +526,19 @@ show_help() {
     echo -e "  ${YELLOW}hide ls all${NC}                   List all hidden items"
     echo ""
     echo -e "${GREEN}ACCESS:${NC}"
-    echo -e "  ${YELLOW}hide show <name>${NC}              Show hidden item location"
-    echo -e "  ${YELLOW}hide open <name>${NC}              Open hidden item"
-    echo -e "  ${YELLOW}hide notepad <name>${NC}           Open hidden notepad"
+    echo -e "  ${YELLOW}hide show <n>${NC}                 Show hidden item location"
+    echo -e "  ${YELLOW}hide read <n>${NC}                 Read hidden file content"
+    echo -e "  ${YELLOW}hide open <n>${NC}                 Open hidden item"
+    echo -e "  ${YELLOW}hide notepad <n>${NC}              Open hidden notepad"
     echo ""
     echo -e "${GREEN}MANAGE:${NC}"
-    echo -e "  ${YELLOW}hide delete <name>${NC}            Delete hidden file"
-    echo -e "  ${YELLOW}hide delete -f <name>${NC}         Delete hidden folder (force)"
+    echo -e "  ${YELLOW}hide delete <n>${NC}               Delete hidden file"
+    echo -e "  ${YELLOW}hide delete -f <n>${NC}            Delete hidden folder (force)"
     echo -e "  ${YELLOW}hide rename <old> <new>${NC}       Rename hidden item"
     echo ""
     echo -e "${GREEN}SECURITY:${NC}"
-    echo -e "  ${YELLOW}hide key <name>${NC}               Lock item with password"
-    echo -e "  ${YELLOW}hide enterKey <name>${NC}          Unlock and open item"
+    echo -e "  ${YELLOW}hide key <n>${NC}                  Lock item with password"
+    echo -e "  ${YELLOW}hide enterKey <n>${NC}             Unlock and open item"
     echo ""
     echo -e "${GREEN}INFO:${NC}"
     echo -e "  ${YELLOW}hide help${NC}                     Show this help"
@@ -513,6 +569,9 @@ main() {
             ;;
         show)
             show_hidden_item "$2"
+            ;;
+        read)
+            read_hidden_file "$2"
             ;;
         open)
             open_hidden_item "$2"
