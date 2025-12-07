@@ -828,6 +828,34 @@ open_notepad() {
     hide-notepad "$notepad_file"
 }
 
+# Show coder info
+show_coder() {
+    clear
+    echo ""
+    echo ""
+    echo ""
+    echo -e "                    ${MAGENTA}███╗   ███╗ █████╗ ██████╗ ██╗██╗    ██╗ █████╗ ███╗   ██╗${NC}"
+    echo -e "                    ${MAGENTA}████╗ ████║██╔══██╗██╔══██╗██║██║    ██║██╔══██╗████╗  ██║${NC}"
+    echo -e "                    ${MAGENTA}██╔████╔██║███████║██████╔╝██║██║ █╗ ██║███████║██╔██╗ ██║${NC}"
+    echo -e "                    ${MAGENTA}██║╚██╔╝██║██╔══██║██╔══██╗██║██║███╗██║██╔══██║██║╚██╗██║${NC}"
+    echo -e "                    ${MAGENTA}██║ ╚═╝ ██║██║  ██║██║  ██║██║╚███╔███╔╝██║  ██║██║ ╚████║${NC}"
+    echo -e "                    ${MAGENTA}╚═╝     ╚═╝╚═╝  ╚═╝╚═╝  ╚═╝╚═╝ ╚══╝╚══╝ ╚═╝  ╚═╝╚═╝  ╚═══╝${NC}"
+    echo ""
+    echo -e "                         ${YELLOW}██╗██████╗  █████╗      ██╗${NC}"
+    echo -e "                         ${YELLOW}██║██╔══██╗██╔══██╗     ██║${NC}"
+    echo -e "                         ${YELLOW}██║██████╔╝███████║     ██║${NC}"
+    echo -e "                         ${YELLOW}██║██╔══██╗██╔══██║██   ██║${NC}"
+    echo -e "                         ${YELLOW}██║██║  ██║██║  ██║╚█████╔╝${NC}"
+    echo -e "                         ${YELLOW}╚═╝╚═╝  ╚═╝╚═╝  ╚═╝ ╚════╝${NC}"
+    echo ""
+    echo ""
+    echo -e "                       ${GREEN}🎯 Creator of HIDE System v2.0.0 🎯${NC}"
+    echo -e "                       ${BLUE}💻 Master Developer & Security Expert 💻${NC}"
+    echo -e "                       ${PURPLE}⚡ Architect of Invisible Systems ⚡${NC}"
+    echo ""
+    echo ""
+}
+
 # Show help
 show_help() {
     echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
@@ -865,6 +893,7 @@ show_help() {
     echo ""
     echo -e "${GREEN}INFO:${NC}"
     echo -e "  ${YELLOW}hide help${NC}                     Show this help"
+    echo -e "  ${YELLOW}hide Coder${NC}                    Show creator information"
     echo ""
 }
 
@@ -929,6 +958,9 @@ main() {
             ;;
         notepad)
             open_notepad "$2"
+            ;;
+        Coder|coder)
+            show_coder
             ;;
         help|--help|-h)
             show_help
