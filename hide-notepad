@@ -1,0 +1,55 @@
+#!/bin/bash
+
+# HIDE-NOTEPAD - Hidden Notepad Editor
+# A completely isolated notepad that runs independently
+
+FILE="$1"
+
+if [ -z "$FILE" ]; then
+    echo "Usage: hide-notepad <file>"
+    exit 1
+fi
+
+# Ensure file exists
+touch "$FILE"
+
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+# Read file content
+content=$(cat "$FILE" 2>/dev/null)
+
+# Clear screen
+clear
+
+echo -e "${CYAN}╔════════════════════════════════════════════════════════════╗${NC}"
+echo -e "${CYAN}║              HIDDEN NOTEPAD - Press Ctrl+D to Save         ║${NC}"
+echo -e "${CYAN}╚════════════════════════════════════════════════════════════╝${NC}"
+echo ""
+echo -e "${YELLOW}File: $(basename "$FILE")${NC}"
+echo ""
+echo -e "${GREEN}Current content:${NC}"
+echo "────────────────────────────────────────────────────────────"
+if [ -n "$content" ]; then
+    echo "$content"
+else
+    echo -e "${YELLOW}(empty)${NC}"
+fi
+echo "────────────────────────────────────────────────────────────"
+echo ""
+echo -e "${CYAN}Enter new content (Ctrl+D when done, Ctrl+C to cancel):${NC}"
+echo ""
+
+# Read new content
+new_content=$(cat)
+
+# Save to file
+echo "$new_content" > "$FILE"
+
+echo ""
+echo -e "${GREEN}✓ Saved successfully${NC}"
