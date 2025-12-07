@@ -26,7 +26,7 @@ A production-ready command-line system that creates and manages completely invis
 ### Quick Install from GitHub
 ```bash
 # Clone the repository
-git clone https://github.com/Mariwan001/hide.git
+git clone https://github.com/Mariwan001/hide-.git
 cd hide
 
 # Install
